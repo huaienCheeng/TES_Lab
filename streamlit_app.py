@@ -1,87 +1,149 @@
 import streamlit as st
+from clips import Environment, Symbol
+#test
 
-st.title("🎈 Demo Update Title")
-st.write(
-    "Hello. Let's start building! For help and inspiration, head over to [docs.streamlit.io](https://docs.streamlit.io/)."
-)
-from tkinter import *
-from clipspy import Environment
 
-# -------------------------------
-# Initialize CLIPS Environment
-# -------------------------------
-env = Environment()
+# ---------------------------------------------------------
+# Expert System (ES) – CLIPS Environment and Rules
+# ---------------------------------------------------------
 
-# Define facts and rules
-env.build("""
-(deftemplate symptom
-    (slot fever)
-    (slot cough))
+def create_environment():
+    """
+    Create and return a CLIPS Environment (Expert System engine)
+    with templates and two simple rules for COVID-19 diagnosis.
+    This function is called each time we want to run inference,
+    which keeps the logic simple and isolated.
+    """
+    env = clips.Environment()
 
-(defrule covid-high-risk
-    (symptom (fever yes) (cough yes))
-    =>
-    (assert (diagnosis "High possibility of COVID-19. Please get tested.")))
+    # Define templates and rules in CLIPS language
+    env.build(
+        """
+        ;; Template for symptoms
+        (deftemplate symptom
+            (slot name)
+            (slot value))
 
-(defrule covid-low-risk
-    (symptom (fever no))
-    =>
-    (assert (diagnosis "Low risk of COVID-19.")))
-""")
+        ;; Template for result diagnosis
+        (deftemplate result
+            (slot diagnosis))
 
-# -------------------------------
-# UI Functions
-# -------------------------------
-def diagnose():
-    # Clear previous facts
+        ;; Rule 1: If fever AND cough -> Possible COVID-19
+        (defrule covid-possible
+            (symptom (name fever) (value yes))
+            (symptom (name cough) (value yes))
+            =>
+            (assert (result (diagnosis
+                    "Possible COVID-19 infection. Please take a COVID-19 test and self-isolate."))))
+
+        ;; Rule 2: If NO fever AND NO cough -> Unlikely COVID-19
+        (defrule covid-unlikely
+            (symptom (name fever) (value no))
+            (symptom (name cough) (value no))
+            =>
+            (assert (result (diagnosis
+                    "Unlikely to be COVID-19 based on these two symptoms."))))
+        """
+    )
+
+    return env
+
+
+def run_expert_system(has_fever: bool, has_cough: bool) -> str:
+    """
+    Take boolean values from the User Interface (UI),
+    assert them as facts into CLIPS, run inference,
+    and return the diagnosis string.
+    """
+    env = create_environment()
+
+    # Reset agenda and facts to initial state
     env.reset()
 
-    fever_value = "yes" if fever_var.get() == 1 else "no"
-    cough_value = "yes" if cough_var.get() == 1 else "no"
+    # Convert booleans to 'yes' or 'no' for CLIPS
+    fever_value = "yes" if has_fever else "no"
+    cough_value = "yes" if has_cough else "no"
 
-    # Assert user input into CLIPS
-    env.assert_string(f'(symptom (fever {fever_value}) (cough {cough_value}))')
+    # Assert symptom facts
+    env.assert_string(f"(symptom (name fever) (value {fever_value}))")
+    env.assert_string(f"(symptom (name cough) (value {cough_value}))")
 
-    # Run the rules
+    # Run inference engine
     env.run()
 
-    # Retrieve diagnosis
-    results = env.facts()
-    diagnosis_text = "No diagnosis found."
+    # Extract result fact (if any)
+    diagnosis = (
+        "No specific rule was fired. Please consult a medical professional for more information."
+    )
+    for fact in env.facts():
+        if fact.template.name == "result":
+            diagnosis = fact["diagnosis"]
+            break
 
-    for fact in results:
-        if fact.template.name == "diagnosis":
-            diagnosis_text = fact.slot_value(0)
-
-    result_label.config(text=diagnosis_text)
+    return diagnosis
 
 
-# -------------------------------
-# Tkinter GUI
-# -------------------------------
-window = Tk()
-window.title("COVID-19 Diagnosis Expert System")
-window.geometry("380x260")
+# ---------------------------------------------------------
+# Streamlit User Interface (UI)
+# ---------------------------------------------------------
 
-Label(window, text="COVID-19 Self-Diagnosis System", font=("Arial", 14, "bold")).pack(pady=10)
+def main():
+    st.title("🩺 COVID-19 Diagnosis Expert System (Rule-Based)")
+    st.write(
+        """
+        This is a simple rule-based Expert System (ES) demo for COVID-19 diagnosis  
+        using **clipspy (CLIPS)** and **Streamlit**.
+        
+        > ⚠️ **Disclaimer:** This is for educational purposes only and is **not** a medical tool.
+        """
+    )
 
-# Fever question
-fever_var = IntVar()
-Label(window, text="Do you have fever?").pack()
-Radiobutton(window, text="Yes", variable=fever_var, value=1).pack()
-Radiobutton(window, text="No", variable=fever_var, value=0).pack()
+    st.markdown("---")
 
-# Cough question
-cough_var = IntVar()
-Label(window, text="Do you have cough?").pack()
-Radiobutton(window, text="Yes", variable=cough_var, value=1).pack()
-Radiobutton(window, text="No", variable=cough_var, value=0).pack()
+    st.header("Step 1 – Enter Your Symptoms")
 
-# Diagnose button
-Button(window, text="Diagnose", command=diagnose, width=20, bg="lightblue").pack(pady=10)
+    # Radio buttons for symptoms
+    fever_choice = st.radio(
+        "Do you have a fever?",
+        ("No", "Yes"),
+        horizontal=True,
+        key="fever",
+    )
 
-# Result label
-result_label = Label(window, text="", font=("Arial", 12), fg="blue")
-result_label.pack()
+    cough_choice = st.radio(
+        "Do you have a cough?",
+        ("No", "Yes"),
+        horizontal=True,
+        key="cough",
+    )
 
-window.mainloop()
+    # Convert to boolean values
+    has_fever = fever_choice == "Yes"
+    has_cough = cough_choice == "Yes"
+
+    st.markdown("---")
+    st.header("Step 2 – Run Diagnosis")
+
+    if st.button("🧪 Diagnose"):
+        diagnosis = run_expert_system(has_fever, has_cough)
+        st.success(diagnosis)
+
+        # (Optional) Show raw booleans for debugging / teaching
+        with st.expander("Show internal values (for learning/debugging)", expanded=False):
+            st.write(f"Fever: {has_fever}")
+            st.write(f"Cough: {has_cough}")
+            st.write("Rules used:")
+            st.code(
+                "Rule 1: IF fever == yes AND cough == yes THEN Possible COVID-19\n"
+                "Rule 2: IF fever == no  AND cough == no  THEN Unlikely COVID-19",
+                language="text",
+            )
+
+    st.markdown("---")
+    st.caption(
+        "Built for TES6313 Lab – Rule-Based Expert System using clipspy & Streamlit."
+    )
+
+
+if __name__ == "__main__":
+    main()
